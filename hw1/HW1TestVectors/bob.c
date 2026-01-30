@@ -11,8 +11,6 @@
 // Include helper function implementations
 #include "demo.c"
 
-// Function prototypes from demo.c are provided by the include above
-
 // Functions I created
 unsigned char *Hex_to_Bytes(unsigned char *hex, int hexlen);
 int Decimal_value(unsigned char c);

@@ -8,8 +8,6 @@
 // Include helper function implementations
 #include "demo.c"
 
-// Function prototypes from demo.c are provided by the include above
-
 int main(int argc, char *argv[])
 {
     unsigned char *message = NULL;
