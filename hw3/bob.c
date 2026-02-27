@@ -15,22 +15,22 @@ int Write_Int_To_File(const char *filename, int value);
 void Print_Hex(const char *label, const unsigned char *data, int len);
 
 
-int main(int argc, char *argv[3]){
+int main(int argc, char *argv[1]){
     //read files and get lengths 
     int seed_length = 0;
     char * shared_seed = Read_File(argv[1], &seed_length);
    
     //read cipher text for hmac matching 
     int cipher_length = 0;
-    char * cipher_texts = Read_File(argv[2], &cipher_length);
+    char * cipher_texts = Read_File("Ciphertexts.txt", &cipher_length);
    
     //read cipher text for decryption
     int cipher_length2 = 0;
-    char * cipher_texts2 = Read_File(argv[2], &cipher_length2);
+    char * cipher_texts2 = Read_File("Ciphertexts.txt", &cipher_length2);
    
     //read hmac 
     int hmac_length = 0;
-    char * aggregated_hmac = Read_File(argv[3], &hmac_length);
+    char * aggregated_hmac = Read_File("AggregatedHMAC.txt", &hmac_length);
     
     //derive k1 using ChaCha20 PRNG (seed as key)
     unsigned char seedkey[32] = {0};
@@ -122,6 +122,7 @@ int main(int argc, char *argv[3]){
     // open output file
     FILE *out = fopen("Plaintexts.txt", "w");
 
+    int pt_line_count = 0;
     // Loop ciphertexts 
     for (char *line2 = strtok_r(cipher_texts2, "\n", &saveptr2);
         line2 != NULL;
@@ -151,7 +152,9 @@ int main(int argc, char *argv[3]){
         pt_len += final_len;
         
         //print to file
-        fprintf(out, "%.*s\n", pt_len, plaintext);
+        if (pt_line_count > 0) fprintf(out, "\n");
+        fprintf(out, "%.*s", pt_len, plaintext);
+        pt_line_count++;
         //increment ke
         Compute_SHA256(current_key, 32, current_key);
         free(ci_bytes);

@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
     FILE *AggregatedHMACs = fopen("AggregatedHMAC.txt", "w");
 
     unsigned char *agg = NULL;
+    int line_count = 0;
 
     char *ptr = NULL;
     char *line = strtok_r(messages_hex, "\n", &ptr);
@@ -80,9 +81,15 @@ int main(int argc, char *argv[])
         Bytes_to_Hex(key, 32, key_hex);
         Bytes_to_Hex(ciphertext, ciphertext_len, cryptext_hex);
 
-        fprintf(Keys, "%s\n", key_hex);
-        fprintf(Ciphertexts, "%s\n", cryptext_hex);
-        fprintf(IndividualHMACs, "%s\n", hmac_hex);
+        if (line_count > 0) {
+            fprintf(Keys, "\n");
+            fprintf(Ciphertexts, "\n");
+            fprintf(IndividualHMACs, "\n");
+        }
+        fprintf(Keys, "%s", key_hex);
+        fprintf(Ciphertexts, "%s", cryptext_hex);
+        fprintf(IndividualHMACs, "%s", hmac_hex);
+        line_count++;
 
         free(ciphertext);
         free(si);
