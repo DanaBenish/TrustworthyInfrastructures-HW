@@ -119,15 +119,15 @@ int main(int argc, char *argv[3]){
     memcpy(current_key, k1, 32);
 
 
-    // 1) Open output file
+    // open output file
     FILE *out = fopen("Plaintexts.txt", "w");
 
-    // 2) Loop ciphertexts again
+    // Loop ciphertexts 
     for (char *line2 = strtok_r(cipher_texts2, "\n", &saveptr2);
         line2 != NULL;
         line2 = strtok_r(NULL, "\n", &saveptr2)) {
         
-        // Skip empty lines 
+        // skip empty lines 
         size_t line_len2 = strlen(line2);
         if (line_len2 == 0) continue;
 
@@ -135,14 +135,14 @@ int main(int argc, char *argv[3]){
         unsigned char *ci_bytes = malloc(line_len2 / 2);
         int byte_len = Hex_to_Bytes(line2, ci_bytes, (int)line_len2);
         
-        //Decryput using iv
+        //decryput using iv
         unsigned char iv[16] = "abcdefghijklmnop";
 
         unsigned char plaintext[1024] = {0};
         int pt_len = 0;
         int final_len = 0;
         
-        //Decrypt using AES-256-CTR mode with current key and IV
+        //decrypt using AES-256-CTR mode with current key and IV
         EVP_CIPHER_CTX *dctx = EVP_CIPHER_CTX_new();
         EVP_EncryptInit_ex(dctx, EVP_aes_256_ctr(), NULL, current_key, iv);
         EVP_EncryptUpdate(dctx, plaintext, &pt_len, ci_bytes, byte_len);
@@ -210,7 +210,7 @@ char* Read_File(const char *filename, int *length) {
 }
 
 
-// Write string to file
+// write string to file
 int Write_File(const char *filename, const char *data) {
     FILE *file = fopen(filename, "w");
     if (!file) {
