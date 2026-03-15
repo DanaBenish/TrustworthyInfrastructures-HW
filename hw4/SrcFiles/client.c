@@ -46,7 +46,8 @@
 
 #include "RequiredFunctions.c"
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 
 	/* ------------------------------------------------------------
 	 * Command-line arguments:
@@ -58,16 +59,17 @@ int main(int argc, char *argv[]) {
 	 * These files MUST already exist. Do NOT generate keys here.
 	 * ------------------------------------------------------------
 	 */
-	if (argc != 4) {
+	if (argc != 4)
+	{
 		fprintf(stderr,
-		        "Usage: %s <Client_temp_SK> <Client_temp_PK> <AS_temp_PK>\n",
-		        argv[0]);
+				"Usage: %s <Client_temp_SK> <Client_temp_PK> <AS_temp_PK>\n",
+				argv[0]);
 		return EXIT_FAILURE;
 	}
 
 	const char *client_temp_sk_path = argv[1];
 	const char *client_temp_pk_path = argv[2];
-	const char *as_temp_pk_path     = argv[3];
+	const char *as_temp_pk_path = argv[3];
 
 	/* Buffers for symmetric keys derived during Kerberos */
 	unsigned char key_client_as[32];
@@ -87,6 +89,12 @@ int main(int argc, char *argv[]) {
 	 *        client_temp_pk_path
 	 *  - Print an error and exit on failure
 	 */
+
+	if (!file_exists(client_temp_sk_path) || !file_exists(client_temp_pk_path))
+	{
+		fprintf(stderr, "Error: Required client temporary key files are missing.\n");
+		return EXIT_FAILURE;
+	}
 
 	/* ------------------------------------------------------------
 	 * STEP 1: Sign Client temporary public key
@@ -112,6 +120,8 @@ int main(int argc, char *argv[]) {
 	 *        "Client_Signature.txt"
 	 */
 
+	ecdsa_sign_file_to_hex("Client_SK.txt", client_temp_pk_path, "Client_Signature.txt");
+
 	/* ------------------------------------------------------------
 	 * STEP 2: Wait for AS response
 	 *
@@ -123,6 +133,11 @@ int main(int argc, char *argv[]) {
 	 *  - Check if "AS_REP.txt" exists
 	 *  - If not, print a status message and exit SUCCESSFULLY
 	 */
+	if (!file_exists("AS_REP.txt"))
+	{
+		printf("Waiting for AS response... (AS_REP.txt not found)\n");
+		return EXIT_SUCCESS;
+	}
 
 	/* ------------------------------------------------------------
 	 * STEP 3: Derive Key_Client_AS
@@ -147,6 +162,21 @@ int main(int argc, char *argv[]) {
 	 *  - Read "Key_Client_AS.txt" (hex)
 	 *  - Compare values byte-for-byte
 	 */
+	unsigned char *shared_secret = NULL;
+	size_t shared_secret_len = 0;
+	ecdh_shared_secret_files(client_temp_sk_path, as_temp_pk_path, &shared_secret, &shared_secret_len);
+	sha256_bytes(shared_secret, shared_secret_len, key_client_as);
+	free(shared_secret);
+	unsigned char expected_key_client_as[32];
+	read_hex_file_bytes("Key_Client_AS.txt", &shared_secret, &shared_secret_len);
+	if (shared_secret_len != 32 || memcmp(key_client_as, shared_secret, 32) != 0)
+	{
+		fprintf(stderr, "Error: Derived Key_Client_AS does not match expected value.\n");
+		free(shared_secret);
+		return EXIT_FAILURE;
+	}
+	memcpy(expected_key_client_as, shared_secret, 32);
+	free(shared_secret);
 
 	/* ------------------------------------------------------------
 	 * STEP 4: Decrypt AS_REP
@@ -166,6 +196,21 @@ int main(int argc, char *argv[]) {
 	 *  - Copy first 32 bytes → key_client_tgs
 	 *  - Remaining bytes → TGT (hex string)
 	 */
+	unsigned char *as_rep_plain = NULL;
+	size_t as_rep_plain_len = 0;
+	aes256_decrypt_hex_file_to_bytes(key_client_as, "AS_REP.txt", &as_rep_plain, &as_rep_plain_len);
+	if (as_rep_plain_len < 32)
+	{
+		fprintf(stderr, "Error: Decrypted AS_REP plaintext is too short.\n");
+		free(as_rep_plain);
+		return EXIT_FAILURE;
+	}
+	memcpy(key_client_tgs, as_rep_plain, 32);
+	size_t tgt_hex_len = as_rep_plain_len - 32;
+	char *tgt_hex = malloc(tgt_hex_len + 1);
+	memcpy(tgt_hex, as_rep_plain + 32, tgt_hex_len);
+	tgt_hex[tgt_hex_len] = '\0';
+	free(as_rep_plain);
 
 	/* ------------------------------------------------------------
 	 * STEP 5: Create TGS_REQ (only once)
@@ -189,6 +234,18 @@ int main(int argc, char *argv[]) {
 	 *      - Write all three required lines in order
 	 */
 
+	char *auth_client_tgs_hex = NULL;
+	if (!file_exists("TGS_REQ.txt"))
+	{
+		aes256_encrypt_bytes_to_hex_string(
+			key_client_tgs,
+			(const unsigned char *)"Client",
+			strlen("Client"),
+			&auth_client_tgs_hex);
+		write_text_lines("TGS_REQ.txt", tgt_hex, auth_client_tgs_hex, "Service");
+		free(auth_client_tgs_hex);
+	}
+
 	/* ------------------------------------------------------------
 	 * STEP 6: Wait for TGS response
 	 *
@@ -200,6 +257,11 @@ int main(int argc, char *argv[]) {
 	 *  - Check existence of "TGS_REP.txt"
 	 *  - If not present, print status and exit SUCCESSFULLY
 	 */
+	if (!file_exists("TGS_REP.txt"))
+	{
+		printf("Waiting for TGS response... (TGS_REP.txt not found)\n");
+		return EXIT_SUCCESS;
+	}
 
 	/* ------------------------------------------------------------
 	 * STEP 7: Recover Key_Client_App
@@ -219,6 +281,33 @@ int main(int argc, char *argv[]) {
 	 *  - Convert hex string to raw bytes
 	 *  - Store exactly 32 bytes in key_client_app
 	 */
+	char *tgs_rep_line2 = read_line("TGS_REP.txt", 2);
+	unsigned char *key_client_app_plainhex = NULL;
+	size_t key_client_app_plainhex_len = 0;
+	aes256_decrypt_hex_string_to_bytes(
+		key_client_tgs, 
+		tgs_rep_line2, 
+		&key_client_app_plainhex, 
+		&key_client_app_plainhex_len);
+	free(tgs_rep_line2);
+	char *key_client_app_hex = malloc(key_client_app_plainhex_len + 1);
+	memcpy(key_client_app_hex, key_client_app_plainhex, key_client_app_plainhex_len);
+	key_client_app_hex[key_client_app_plainhex_len] = '\0';
+	free(key_client_app_plainhex);
+	unsigned char *key_client_app_bytes = NULL;
+	size_t key_client_app_bytes_len = 0;
+	hex_to_bytes(key_client_app_hex, &key_client_app_bytes, &key_client_app_bytes_len);
+	if (key_client_app_bytes_len != 32)
+	{
+		fprintf(stderr, "Error: Decrypted Key_Client_App is not 32 bytes.\n");
+		free(key_client_app_hex);
+		free(key_client_app_bytes);
+		return EXIT_FAILURE;
+	}
+	memcpy(key_client_app, key_client_app_bytes, 32);
+	free(key_client_app_bytes);
+	free(key_client_app_hex);
+
 
 	/* ------------------------------------------------------------
 	 * STEP 8: Create APP_REQ
@@ -238,5 +327,15 @@ int main(int argc, char *argv[]) {
 	 *  - Write both values to "APP_REQ.txt"
 	 */
 
+	char *auth_client_app_hex = NULL;
+	aes256_encrypt_bytes_to_hex_string(
+		key_client_app,
+		(const unsigned char *)"Client",
+		strlen("Client"),
+		&auth_client_app_hex);
+	char *tgs_rep_line1 = read_line("TGS_REP.txt", 1);
+	write_text_lines("APP_REQ.txt", tgs_rep_line1, auth_client_app_hex, NULL);
+	free(auth_client_app_hex);
+	free(tgs_rep_line1);
 	return EXIT_SUCCESS;
 }
