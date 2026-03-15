@@ -96,6 +96,11 @@ int main(int argc, char *argv[])
 	 *        as_temp_pk_path
 	 *  - Print descriptive errors and exit on failure
 	 */
+	if (!file_exists(client_sig_path) || !file_exists(as_temp_sk_path) || !file_exists(as_temp_pk_path))
+	{
+		fprintf(stderr, "Error: Required input files are missing.\n");
+		return EXIT_FAILURE;
+	}
 
 	/* ------------------------------------------------------------
 	 * STEP 1: Verify client identity
@@ -117,6 +122,12 @@ int main(int argc, char *argv[])
 	 *  - Treat failure as an authentication failure
 	 */
 
+	if (!ecdsa_verify_file_from_hex("Client_PK.txt", client_temp_pk_path, client_sig_path))
+	{
+		fprintf(stderr, "Error: Client signature verification failed.\n");
+		return EXIT_FAILURE;
+	}
+
 	/* ------------------------------------------------------------
 	 * STEP 2: Derive shared secret (ECDH)
 	 *
@@ -134,6 +145,10 @@ int main(int argc, char *argv[])
 	 *  - Use the client's temporary public key
 	 *  - Write the shared secret to shared_secret.txt (hex)
 	 */
+	unsigned char *shared_secret = NULL;
+	size_t shared_secret_len = 0;
+	ecdh_shared_secret_files(as_temp_sk_path, client_temp_pk_path, &shared_secret, &shared_secret_len);
+	write_hex_file("shared_secret.txt", shared_secret, shared_secret_len);
 
 	/* ------------------------------------------------------------
 	 * STEP 3: Derive Key_Client_AS
@@ -151,6 +166,9 @@ int main(int argc, char *argv[])
 	 *  - Hash the shared secret using SHA-256
 	 *  - Write exactly 32 bytes to Key_Client_AS.txt
 	 */
+	sha256_bytes(shared_secret, shared_secret_len, key_client_as);
+	write_hex_file("Key_Client_AS.txt", key_client_as, 32);
+	free(shared_secret);
 
 	/* ------------------------------------------------------------
 	 * STEP 4: Load pre-generated session key (Client ↔ TGS)
@@ -168,6 +186,11 @@ int main(int argc, char *argv[])
 	 *  - Validate length
 	 *  - Store raw bytes in key_client_tgs
 	 */
+	unsigned char *key_client_tgs_bytes = NULL;
+	size_t key_client_tgs_len = 0;
+	read_hex_file_bytes("Key_Client_TGS.txt", &key_client_tgs_bytes, &key_client_tgs_len);
+	memcpy(key_client_tgs, key_client_tgs_bytes, 32);
+	free(key_client_tgs_bytes);
 
 	/* ------------------------------------------------------------
 	 * STEP 5: Build the Ticket Granting Ticket (TGT)
@@ -194,6 +217,25 @@ int main(int argc, char *argv[])
 	 *  - AES-encrypt under Key_AS_TGS
 	 *  - Hex-encode the ciphertext
 	 */
+	unsigned char *key_as_tgs = NULL;
+	size_t key_as_tgs_len = 0;
+	read_hex_file_bytes("Key_AS_TGS.txt", &key_as_tgs, &key_as_tgs_len);
+	char *key_client_tgs_hex = bytes_to_hex(key_client_tgs, 32);
+
+	size_t client_id_len = strlen("Client");
+	size_t key_client_tgs_hex_len = strlen(key_client_tgs_hex);
+	size_t tgt_plain_len = client_id_len + key_client_tgs_hex_len;
+	unsigned char *tgt_plain = malloc(tgt_plain_len);
+
+	memcpy(tgt_plain, "Client", client_id_len);
+	memcpy(tgt_plain + client_id_len, key_client_tgs_hex, key_client_tgs_hex_len);
+
+	char *tgt_hex = NULL;
+	aes256_encrypt_bytes_to_hex_string(key_as_tgs, tgt_plain, tgt_plain_len, &tgt_hex);
+
+	free(key_as_tgs);
+	free(key_client_tgs_hex);
+	free(tgt_plain);
 
 	/* ------------------------------------------------------------
 	 * STEP 6: Build AS_REP
@@ -218,6 +260,20 @@ int main(int argc, char *argv[])
 	 *  - Hex-encode ciphertext
 	 *  - Write to AS_REP.txt (single line)
 	 */
+	size_t tgt_hex_len = strlen(tgt_hex);
+	size_t as_rep_plain_len = 32 + tgt_hex_len;
+	unsigned char *as_rep_plain = malloc(as_rep_plain_len);
+
+	memcpy(as_rep_plain, key_client_tgs, 32);
+	memcpy(as_rep_plain + 32, tgt_hex, tgt_hex_len);
+
+	char *as_rep_hex = NULL;
+	aes256_encrypt_bytes_to_hex_string(key_client_as, as_rep_plain, as_rep_plain_len, &as_rep_hex);
+	write_text_lines("AS_REP.txt", as_rep_hex, NULL, NULL);
+
+	free(tgt_hex);
+	free(as_rep_plain);
+	free(as_rep_hex);
 
 	return EXIT_SUCCESS;
 }
