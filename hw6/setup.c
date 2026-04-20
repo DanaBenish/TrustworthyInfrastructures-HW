@@ -18,6 +18,7 @@ static void build_tree(BIGNUM **secrets, int n, BN_CTX *ctx,
 int main(int argc, char *argv[])
 {
     // Part 1
+    int tmp_len = 0;
     char *p_hex = Read_File(argv[1], &tmp_len);
     char *g_hex = Read_File(argv[2], &tmp_len);
 
